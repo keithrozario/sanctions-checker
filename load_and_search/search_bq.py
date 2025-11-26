@@ -6,9 +6,12 @@ import json
 def search_data(project_id, dataset_id, table_id, search_term, threshold):
     client = bigquery.Client(project=project_id)
     
+    regex_pattern = r'(?i)\b{}\b'.format(search_term)
+
     query = f"""
     DECLARE search_term STRING DEFAULT @search_term;
     DECLARE threshold INT64 DEFAULT @threshold;
+    DECLARE regex_pattern STRING DEFAULT @regex_pattern;
 
     SELECT 
         t.*
@@ -22,10 +25,26 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
                 `{{project_id}}.{dataset_id}.{table_id}`,
                 UNNEST(names) AS n
             WHERE 
-                ABS(LENGTH(n.full_name) - LENGTH(search_term)) <= threshold
-                AND EDIT_DISTANCE(UPPER(n.full_name), UPPER(search_term)) <= threshold
+                (
+                    -- Fuzzy Match (Full String)
+                    ABS(LENGTH(n.full_name) - LENGTH(search_term)) <= threshold
+                    AND EDIT_DISTANCE(UPPER(n.full_name), UPPER(search_term)) <= threshold
+                )
+                OR
+                (
+                    -- Exact Word Match (Substring)
+                    -- Matches "Ali" in "Muhammad Ali" or "Ali-Baba"
+                    REGEXP_CONTAINS(n.full_name, regex_pattern)
+                )
             GROUP BY entity_id
-            ORDER BY MIN(EDIT_DISTANCE(UPPER(n.full_name), UPPER(search_term))) ASC
+            ORDER BY 
+                -- Prioritize Exact Matches and Closer Fuzzy Matches
+                MIN(
+                    CASE 
+                        WHEN REGEXP_CONTAINS(n.full_name, regex_pattern) THEN 0
+                        ELSE EDIT_DISTANCE(UPPER(n.full_name), UPPER(search_term)) 
+                    END
+                ) ASC
             LIMIT 10
         )
     ORDER BY t.entity_id ASC;
@@ -35,6 +54,7 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
         query_parameters=[
             bigquery.ScalarQueryParameter("search_term", "STRING", search_term),
             bigquery.ScalarQueryParameter("threshold", "INT64", threshold),
+            bigquery.ScalarQueryParameter("regex_pattern", "STRING", regex_pattern),
         ]
     )
 
