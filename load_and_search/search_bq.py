@@ -13,6 +13,40 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
     DECLARE threshold INT64 DEFAULT @threshold;
     DECLARE regex_pattern STRING DEFAULT @regex_pattern;
 
+    CREATE TEMP FUNCTION NormalizeEntityName(input STRING) AS (
+      REGEXP_REPLACE(
+        REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(
+                REGEXP_REPLACE(
+                  REGEXP_REPLACE(
+                    REGEXP_REPLACE(
+                      REGEXP_REPLACE(
+                        REGEXP_REPLACE(
+                            UPPER(input),
+                            r'[^A-Z0-9\\s]', '' -- Remove punctuation
+                        ),
+                        r'\\bLIMITED\\b', 'LTD'
+                      ),
+                      r'\\bPRIVATE\\b', 'PVT'
+                    ),
+                    r'\\bPTE\\b', 'PVT'
+                  ),
+                  r'\\bCORPORATION\\b', 'CORP'
+                ),
+                r'\\bINCORPORATED\\b', 'INC'
+              ),
+              r'\\bCOMPANY\\b', 'CO'
+            ),
+            r'\\bDEPARTMENT\\b', 'DEPT'
+          ),
+          r'\\bBROTHERS\\b', 'BROS'
+        ),
+        r'\\bAND\\b', '&'
+      )
+    );
+
     SELECT 
         t.*
     FROM 
@@ -33,15 +67,21 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
                 OR
                 (
                     -- Exact Word Match (Substring)
-                    -- Matches "Ali" in "Muhammad Ali" or "Ali-Baba"
                     REGEXP_CONTAINS(n.full_name, regex_pattern)
+                )
+                OR
+                (
+                    -- Normalized Fuzzy Match (Handles Abbreviations)
+                    EDIT_DISTANCE(NormalizeEntityName(n.full_name), NormalizeEntityName(search_term)) <= threshold
                 )
             GROUP BY entity_id
             ORDER BY 
-                -- Prioritize Exact Matches and Closer Fuzzy Matches
+                -- Prioritize Exact Matches, then Normalized Matches, then Raw Fuzzy Matches
                 MIN(
                     CASE 
                         WHEN REGEXP_CONTAINS(n.full_name, regex_pattern) THEN 0
+                        WHEN EDIT_DISTANCE(NormalizeEntityName(n.full_name), NormalizeEntityName(search_term)) <= threshold 
+                             THEN EDIT_DISTANCE(NormalizeEntityName(n.full_name), NormalizeEntityName(search_term))
                         ELSE EDIT_DISTANCE(UPPER(n.full_name), UPPER(search_term)) 
                     END
                 ) ASC
