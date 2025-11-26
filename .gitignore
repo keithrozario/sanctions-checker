@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:ed7b84e816359d17276a801802de5c362c2c572ce3e50a8670c8362b08351380
-size 109
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Terraform files
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.backup
+*.tfvars

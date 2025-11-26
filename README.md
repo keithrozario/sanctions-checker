@@ -1,3 +1,11 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b5cc39242f13cde0d57a32a1c236bc281d23661090d2565812bd3db6e7b79efe
-size 334
+# Sanctions Checker
+
+## What is it?
+
+A solution that enables someone to check if an entity is on the Sanctions list. 
+
+## How to use it?
+
+The solution allows you to enter a name and address, and the solution will be able to check if the entity is on the sanction list. It will take into account typos and address locations as well.
+
+

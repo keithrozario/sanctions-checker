@@ -1,3 +1,20 @@
+terraform {
+  backend "gcs" {
+    bucket = "tf-backends-krozario-gcloud"
+    prefix = "terraform/state/sanctions-checker"
+  }
+  required_providers {
+    google-beta = {
+      source = "hashicorp/google-beta"
+      version = "7.12.0"
+    }
+    google = {
+      source = "hashicorp/google"
+      version = "7.12.0"
+    }
+  }
+}
+
 provider "google" {
   project = var.project_id
   region  = var.region

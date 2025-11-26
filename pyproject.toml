@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9b2424bbc8759fd6a05e2c3b77406502718845a66418b3ea2e87d5121d4ef60d
-size 160
+[project]
+name = "sanctions-checker"
+version = "0.1.0"
+description = "Checking for Sanctions"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "db-dtypes>=1.4.4",
+    "google-cloud-bigquery>=3.38.0",
+]

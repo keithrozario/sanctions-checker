@@ -1,12 +1,13 @@
 variable "project_id" {
   description = "The Google Cloud Project ID"
   type        = string
+  default = "default-krozario"
 }
 
 variable "region" {
   description = "The region for BigQuery resources"
   type        = string
-  default     = "US"
+  default     = "asia-southeast1"
 }
 
 variable "dataset_id" {
