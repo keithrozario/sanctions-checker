@@ -32,7 +32,7 @@ resource "google_bigquery_table" "table" {
   dataset_id = google_bigquery_dataset.dataset.dataset_id
   table_id   = var.table_id
 
-  schema = file("../bq_schema.json")
+  schema = file("../queries/bq_schema.json")
   
   deletion_protection = false # For ease of development/testing
 }
