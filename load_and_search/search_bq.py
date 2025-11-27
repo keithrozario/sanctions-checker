@@ -117,11 +117,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Search BigQuery Sanctions Data.")
     parser.add_argument("search_term", type=str, help="The term to search for.")
     parser.add_argument("--threshold", type=int, default=2, help="Maximum allowed typo distance.")
+    parser.add_argument("--output_table", type=str, default="sanctions_data.sdn_entities", 
+                        help="Output BigQuery table to search (format: DATASET.TABLE).")
     args = parser.parse_args()
 
     PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT_ID", "your-project-id") 
-    DATASET_ID = "sanctions_data"
-    TABLE_ID = "sdn_entities"
+    
+    # Split the output_table argument into dataset_id and table_id
+    try:
+        DATASET_ID, TABLE_ID = args.output_table.split('.')
+    except ValueError:
+        print("Error: --output_table must be in the format DATASET.TABLE")
+        sys.exit(1)
 
     if PROJECT_ID == "your-project-id":
         print("Please set GOOGLE_CLOUD_PROJECT_ID env var or edit the script with your Project ID.")
