@@ -9,13 +9,15 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
     
     # Normalize the search term in Python
     normalized_search_term = normalize_name(search_term)
-    regex_pattern = r'(?i)\b{}\b'.format(search_term)
+    # Regex pattern for exact word match on original name (case-insensitive)
+    regex_pattern = r'(?i)\b{}\b'.format(search_term.upper() if search_term else "") # Ensure uppercase for regex match
 
     query = f"""
     DECLARE search_term STRING DEFAULT @search_term;
     DECLARE normalized_search_term STRING DEFAULT @normalized_search_term;
     DECLARE threshold INT64 DEFAULT @threshold;
     DECLARE regex_pattern STRING DEFAULT @regex_pattern;
+    DECLARE normalized_regex_pattern STRING DEFAULT @normalized_regex_pattern;
 
     SELECT 
         t.*
@@ -31,28 +33,31 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
             WHERE 
                 (
                     -- Normalized Fuzzy Match
-                    -- Handles typos AND abbreviations (e.g. Pvt Ltd vs Private Limited)
-                    -- because n.normalized_name is already pre-computed in the DB.
                     EDIT_DISTANCE(n.normalized_name, normalized_search_term) <= threshold
                 )
                 OR
                 (
                     -- Exact Word Match (Substring) on Original Name
-                    -- Matches "Ali" in "Muhammad Ali"
                     REGEXP_CONTAINS(n.full_name, regex_pattern)
+                )
+                OR
+                (
+                    -- Exact Word Match (Substring) on Normalized Name
+                    REGEXP_CONTAINS(n.normalized_name, normalized_regex_pattern)
                 )
             GROUP BY entity_id
             ORDER BY 
-                -- Prioritize Exact Matches, then Normalized Matches
+                -- Prioritize Exact Matches, then Normalized Word Matches, then Normalized Fuzzy Matches
                 MIN(
                     CASE 
                         WHEN REGEXP_CONTAINS(n.full_name, regex_pattern) THEN 0
+                        WHEN REGEXP_CONTAINS(n.normalized_name, normalized_regex_pattern) THEN 0
                         WHEN EDIT_DISTANCE(n.normalized_name, normalized_search_term) <= threshold 
                              THEN EDIT_DISTANCE(n.normalized_name, normalized_search_term)
                         ELSE 100
                     END
                 ) ASC
-            LIMIT 10
+            -- LIMIT 10 -- Temporarily removed for debugging
         )
     ORDER BY t.entity_id ASC;
     """.format(project_id=project_id, dataset_id=dataset_id, table_id=table_id)
@@ -63,6 +68,7 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
             bigquery.ScalarQueryParameter("normalized_search_term", "STRING", normalized_search_term),
             bigquery.ScalarQueryParameter("threshold", "INT64", threshold),
             bigquery.ScalarQueryParameter("regex_pattern", "STRING", regex_pattern),
+            bigquery.ScalarQueryParameter("normalized_regex_pattern", "STRING", r'\b' + normalized_search_term + r'\b'), # Pass the fully constructed regex for normalized search
         ]
     )
 
