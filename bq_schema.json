@@ -15,6 +15,11 @@
         "mode": "REQUIRED"
       },
       {
+        "name": "normalized_name",
+        "type": "STRING",
+        "mode": "NULLABLE"
+      },
+      {
         "name": "is_primary",
         "type": "BOOLEAN",
         "mode": "NULLABLE"

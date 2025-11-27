@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 import json
 import sys
+from normalization_logic import normalize_name
 
 # Namespace map
 ns = {'ns': 'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/ADVANCED_XML'}
@@ -153,6 +154,7 @@ def parse_and_convert(input_file, output_file):
                             if full_name:
                                 aliases.append({
                                     'full_name': full_name,
+                                    'normalized_name': normalize_name(full_name),
                                     'is_primary': is_primary,
                                     'type_id': alias.attrib.get('AliasTypeID')
                                 })

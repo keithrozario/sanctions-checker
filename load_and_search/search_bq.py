@@ -1,51 +1,21 @@
-from google.cloud import bigquery
 import os
 import argparse
 import json
+from google.cloud import bigquery
+from normalization_logic import normalize_name
 
 def search_data(project_id, dataset_id, table_id, search_term, threshold):
     client = bigquery.Client(project=project_id)
     
+    # Normalize the search term in Python
+    normalized_search_term = normalize_name(search_term)
     regex_pattern = r'(?i)\b{}\b'.format(search_term)
 
     query = f"""
     DECLARE search_term STRING DEFAULT @search_term;
+    DECLARE normalized_search_term STRING DEFAULT @normalized_search_term;
     DECLARE threshold INT64 DEFAULT @threshold;
     DECLARE regex_pattern STRING DEFAULT @regex_pattern;
-
-    CREATE TEMP FUNCTION NormalizeEntityName(input STRING) AS (
-      REGEXP_REPLACE(
-        REGEXP_REPLACE(
-          REGEXP_REPLACE(
-            REGEXP_REPLACE(
-              REGEXP_REPLACE(
-                REGEXP_REPLACE(
-                  REGEXP_REPLACE(
-                    REGEXP_REPLACE(
-                      REGEXP_REPLACE(
-                        REGEXP_REPLACE(
-                            UPPER(input),
-                            r'[^A-Z0-9\\s]', '' -- Remove punctuation
-                        ),
-                        r'\\bLIMITED\\b', 'LTD'
-                      ),
-                      r'\\bPRIVATE\\b', 'PVT'
-                    ),
-                    r'\\bPTE\\b', 'PVT'
-                  ),
-                  r'\\bCORPORATION\\b', 'CORP'
-                ),
-                r'\\bINCORPORATED\\b', 'INC'
-              ),
-              r'\\bCOMPANY\\b', 'CO'
-            ),
-            r'\\bDEPARTMENT\\b', 'DEPT'
-          ),
-          r'\\bBROTHERS\\b', 'BROS'
-        ),
-        r'\\bAND\\b', '&'
-      )
-    );
 
     SELECT 
         t.*
@@ -60,29 +30,26 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
                 UNNEST(names) AS n
             WHERE 
                 (
-                    -- Fuzzy Match (Full String)
-                    ABS(LENGTH(n.full_name) - LENGTH(search_term)) <= threshold
-                    AND EDIT_DISTANCE(UPPER(n.full_name), UPPER(search_term)) <= threshold
+                    -- Normalized Fuzzy Match
+                    -- Handles typos AND abbreviations (e.g. Pvt Ltd vs Private Limited)
+                    -- because n.normalized_name is already pre-computed in the DB.
+                    EDIT_DISTANCE(n.normalized_name, normalized_search_term) <= threshold
                 )
                 OR
                 (
-                    -- Exact Word Match (Substring)
+                    -- Exact Word Match (Substring) on Original Name
+                    -- Matches "Ali" in "Muhammad Ali"
                     REGEXP_CONTAINS(n.full_name, regex_pattern)
-                )
-                OR
-                (
-                    -- Normalized Fuzzy Match (Handles Abbreviations)
-                    EDIT_DISTANCE(NormalizeEntityName(n.full_name), NormalizeEntityName(search_term)) <= threshold
                 )
             GROUP BY entity_id
             ORDER BY 
-                -- Prioritize Exact Matches, then Normalized Matches, then Raw Fuzzy Matches
+                -- Prioritize Exact Matches, then Normalized Matches
                 MIN(
                     CASE 
                         WHEN REGEXP_CONTAINS(n.full_name, regex_pattern) THEN 0
-                        WHEN EDIT_DISTANCE(NormalizeEntityName(n.full_name), NormalizeEntityName(search_term)) <= threshold 
-                             THEN EDIT_DISTANCE(NormalizeEntityName(n.full_name), NormalizeEntityName(search_term))
-                        ELSE EDIT_DISTANCE(UPPER(n.full_name), UPPER(search_term)) 
+                        WHEN EDIT_DISTANCE(n.normalized_name, normalized_search_term) <= threshold 
+                             THEN EDIT_DISTANCE(n.normalized_name, normalized_search_term)
+                        ELSE 100
                     END
                 ) ASC
             LIMIT 10
@@ -93,12 +60,13 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
     job_config = bigquery.QueryJobConfig(
         query_parameters=[
             bigquery.ScalarQueryParameter("search_term", "STRING", search_term),
+            bigquery.ScalarQueryParameter("normalized_search_term", "STRING", normalized_search_term),
             bigquery.ScalarQueryParameter("threshold", "INT64", threshold),
             bigquery.ScalarQueryParameter("regex_pattern", "STRING", regex_pattern),
         ]
     )
 
-    print(f"Searching for '{search_term}' with threshold {threshold}...")
+    print(f"Searching for '{search_term}' (Normalized: '{normalized_search_term}') with threshold {threshold}...")
     query_job = client.query(query, job_config=job_config)
     
     results = query_job.result()
