@@ -49,7 +49,10 @@ def _parse_locations(xml_root, country_map):
         address_lines = []
         for part in loc_elem.findall("ns:LocationPart", ns):
             type_id = part.attrib.get("LocPartTypeID")
-            val_elem = part.find("ns:LocationPartValue", ns)
+            loc_part_value = part.find("ns:LocationPartValue", ns)
+            
+            # The actual value is inside a <Value> child element
+            val_elem = loc_part_value.find("ns:Value", ns) if loc_part_value is not None else None
             val = (
                 val_elem.text.strip()
                 if val_elem is not None and val_elem.text
