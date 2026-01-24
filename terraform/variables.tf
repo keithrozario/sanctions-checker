@@ -1,7 +1,7 @@
 variable "project_id" {
   description = "The Google Cloud Project ID"
   type        = string
-  default = "default-krozario"
+  default = "agentspace-krozario"
 }
 
 variable "region" {

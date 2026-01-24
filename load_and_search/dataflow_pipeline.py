@@ -13,18 +13,94 @@ import sys
 ns = {'ns': 'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/ADVANCED_XML'}
 
 from normalization_logic import normalize_name
+from address_enrichment import AddressEnricher
 
 # --- Helper functions for XML parsing, extracted from parse_to_jsonl.py ---
 # These will run within the DoFn, so they need to be self-contained.
 
 
 def _parse_countries(xml_root):
+    # ... (existing code) ...
     country_map = {}
     for country_elem in xml_root.findall(".//ns:Country", ns):
         c_id = country_elem.attrib.get("ID")
         if c_id:
             country_map[c_id] = country_elem.text.strip() if country_elem.text else None
     return country_map
+
+# ... (existing helper functions) ...
+
+class EnrichAddressesDoFn(beam.DoFn):
+    """
+    Enriches entity addresses using Google Maps Address Validation API.
+    Uses a side-input cache to avoid redundant API calls.
+    """
+    def __init__(self, project_id):
+        self.project_id = project_id
+        self.enricher = None
+
+    def setup(self):
+        # Initialize the enricher (authenticates via OAuth)
+        self.enricher = AddressEnricher(self.project_id)
+
+    def process(self, entity, existing_cache):
+        # existing_cache is a dict: { address_hash: enriched_data_json_string }
+        
+        addresses = entity.get('addresses', [])
+        if not addresses:
+            yield entity
+            return
+
+        new_addresses = []
+        for addr in addresses:
+            # We enrich based on 'address_line' if available, combined with city/country
+            # Construct a raw address string for lookup/API
+            raw_parts = []
+            if addr.get('address_line'): raw_parts.append(addr['address_line'])
+            if addr.get('city'): raw_parts.append(addr['city'])
+            if addr.get('state'): raw_parts.append(addr['state'])
+            if addr.get('postal_code'): raw_parts.append(addr['postal_code'])
+            if addr.get('country'): raw_parts.append(addr['country'])
+            
+            raw_address_str = ", ".join(raw_parts)
+            
+            if not raw_address_str.strip():
+                new_addresses.append(addr)
+                continue
+
+            addr_hash = self.enricher.get_address_hash(raw_address_str)
+            
+            enriched_data = None
+            
+            # 1. Check Cache
+            if addr_hash in existing_cache:
+                enriched_data = existing_cache[addr_hash]
+            else:
+                # 2. Call API
+                # Note: failure or rate limit returns None
+                enriched_data = self.enricher.enrich(raw_address_str)
+                
+                # 3. Emit to Side Output for Cache Update if we got data
+                if enriched_data:
+                    yield beam.pvalue.TaggedOutput('new_cache_entries', {
+                        'address_hash': addr_hash,
+                        'raw_address': raw_address_str,
+                        'enriched_data': enriched_data,
+                        'updated_at': None # BQ handles timestamp on insert if default, or we set current time
+                        # Actually, better to set timestamp here or let BQ default? 
+                        # We'll rely on insertion time or add it here.
+                    })
+
+            # Update the address record with enriched data
+            # Create a copy to avoid mutating original if needed
+            new_addr = addr.copy()
+            new_addr['enriched_data'] = enriched_data
+            new_addresses.append(new_addr)
+
+        # Update entity and yield
+        entity['addresses'] = new_addresses
+        yield entity
+
 
 
 def _parse_locations(xml_root, country_map):
@@ -110,11 +186,11 @@ class ParseSanctionsXmlDoFn(beam.DoFn):
 
         # Pass 4: Distinct Parties (Main Output)
         for elem in root.findall(".//ns:DistinctParty", ns):
-            entity_id = elem.attrib.get("FixedRef")
+            entity_id = elem.attrib.get('FixedRef')
             profile = elem.find("ns:Profile", ns)
-
+            
             if profile is not None and entity_id:
-                profile_id = profile.attrib.get("ID")
+                profile_id = profile.attrib.get('ID')
                 party_sub_type_id = profile.attrib.get("PartySubTypeID")
 
                 # Determine Type
@@ -178,12 +254,12 @@ class ParseSanctionsXmlDoFn(beam.DoFn):
                 )
 
                 record = {
-                    "entity_id": int(entity_id),
-                    "names": aliases,
-                    "type": entity_type,
-                    "programs": programs,
-                    "addresses": entity_addresses,
-                    "remarks": remarks,
+                    'entity_id': int(entity_id),
+                    'names': aliases,
+                    'type': entity_type,
+                    'programs': programs,
+                    'addresses': entity_addresses,
+                    'remarks': remarks,
                 }
                 yield record
 
@@ -229,38 +305,78 @@ def run(argv=None, save_main_session=True):
     )
 
     with beam.Pipeline(options=pipeline_options) as p:
-        # Read the entire XML file content as a single string element
-        # For files on GCS, use beam.io.fileio.MatchFiles and ReadMatches
-        # For local files, use beam.io.ReadFromText with a custom PTransform or just read it into a PCollection
-        # Given the file is 100MB, reading it into a single element is acceptable for this demonstration
-        # For production with larger files, a custom XML source would be needed.
+        # 1. Read Existing Address Cache
+        # We read from BigQuery and create a dictionary: hash -> enriched_data
+        # Note: For very large caches, this side-input approach might hit memory limits.
+        # Ideally, use a proper scalable join or lookups, but for <100MB cache this is fastest.
+        
+        # Define cache query
+        cache_query = f"SELECT address_hash, enriched_data FROM `sanctions_data.address_cache`"
+        
+        existing_cache = (
+            p 
+            | 'ReadCache' >> beam.io.ReadFromBigQuery(
+                query=cache_query, 
+                use_standard_sql=True,
+                project=args.project,
+                gcs_location=args.temp_location
+            )
+            | 'KeyByHash' >> beam.Map(lambda row: (row['address_hash'], row['enriched_data']))
+        )
 
-        # Read local file for DirectRunner or GCS for DataflowRunner
+        # 2. Read XML
         if args.runner == "DirectRunner" and not args.input_file.startswith("gs://"):
             xml_content = p | "ReadLocalXML" >> beam.Create(
                 [open(args.input_file, "r", encoding="utf-8").read()]
             )
         else:
-            # Assumes input_file is a GCS path for DataflowRunner
             xml_content = p | "ReadGCSXML" >> beam.io.ReadFromText(args.input_file)
 
-        # Parse the XML and yield individual entity records
+        # 3. Parse XML
         parsed_entities = xml_content | "ParseXML" >> beam.ParDo(
             ParseSanctionsXmlDoFn()
         )
 
-        # Write to BigQuery
-        # Read BigQuery schema from file
+        # 4. Enrich Addresses
+        # We use the existing_cache as a Side Input (AsDict)
+        enriched_results = (
+            parsed_entities 
+            | 'EnrichAddresses' >> beam.ParDo(
+                EnrichAddressesDoFn(args.project),
+                existing_cache=beam.pvalue.AsDict(existing_cache)
+            ).with_outputs('new_cache_entries', main='enriched_entities')
+        )
+        
+        enriched_entities = enriched_results.enriched_entities
+        new_cache_entries = enriched_results.new_cache_entries
+
+        # 5. Write Enriched Entities to Main Table
         schema_path = os.path.join(os.path.dirname(__file__), '../queries/bq_schema.json')
         with open(schema_path, "r") as f:
             bigquery_schema = json.load(f)
 
-        # Convert to BigQuery TableSchema format if necessary (list of dicts should be fine)
-
-        parsed_entities | "WriteToBigQuery" >> WriteToBigQuery(
+        enriched_entities | "WriteToBigQuery" >> WriteToBigQuery(
             table=args.output_table,
             schema={"fields": bigquery_schema},
             write_disposition=beam.io.BigQueryDisposition.WRITE_TRUNCATE,
+            create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
+        )
+        
+        # 6. Write New Cache Entries
+        # We append new entries to the cache table
+        cache_schema = {
+            'fields': [
+                {'name': 'address_hash', 'type': 'STRING', 'mode': 'REQUIRED'},
+                {'name': 'raw_address', 'type': 'STRING', 'mode': 'REQUIRED'},
+                {'name': 'enriched_data', 'type': 'JSON', 'mode': 'NULLABLE'},
+                {'name': 'updated_at', 'type': 'TIMESTAMP', 'mode': 'NULLABLE'}
+            ]
+        }
+        
+        new_cache_entries | "WriteCacheToBigQuery" >> WriteToBigQuery(
+            table=f"{args.project}:sanctions_data.address_cache",
+            schema=cache_schema,
+            write_disposition=beam.io.BigQueryDisposition.WRITE_APPEND,
             create_disposition=beam.io.BigQueryDisposition.CREATE_IF_NEEDED,
         )
 

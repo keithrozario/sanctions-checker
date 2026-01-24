@@ -9,6 +9,8 @@ This directory contains SQL queries and schema definitions for the Sanctions Dat
     *   Used by **Dataflow** (`dataflow_pipeline.py`) to ensure data is loaded correctly.
     *   Defines the nested and repeated structure for entities, including the `names` record (with `normalized_name`) and `addresses`.
 
+*   **`count_entities.sql`**: A simple query to report the total number of unique entities in the BigQuery table.
+
 *   **`fuzzy_search.sql`**: A reference SQL query demonstrating the project's advanced search logic.
     *   Shows how to use `EDIT_DISTANCE` for fuzzy matching.
     *   Shows how to use `REGEXP_CONTAINS` for word-boundary matching.

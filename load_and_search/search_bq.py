@@ -83,6 +83,11 @@ def search_data(project_id, dataset_id, table_id, search_term, threshold):
             entity_dict = dict(row)
             # The 'names' field is a list of Row objects, convert them to dicts too
             entity_dict['names'] = [dict(name_row) for name_row in entity_dict['names']]
+            
+            # The 'addresses' field is also a list of Row objects
+            if 'addresses' in entity_dict and entity_dict['addresses']:
+                entity_dict['addresses'] = [dict(addr_row) for addr_row in entity_dict['addresses']]
+
             print(json.dumps(entity_dict, indent=2))
     else:
         print("No matching entities found.")
