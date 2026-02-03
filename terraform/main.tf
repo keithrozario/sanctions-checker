@@ -26,6 +26,7 @@ resource "google_bigquery_dataset" "dataset" {
   description                 = "Dataset containing parsed OFAC SDN entities"
   location                    = var.region
   default_table_expiration_ms = 5184000000 # 60 days
+  delete_contents_on_destroy  = true
 }
 
 resource "google_bigquery_table" "table" {
