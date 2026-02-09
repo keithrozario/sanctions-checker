@@ -1,0 +1,21 @@
+{
+  "name": "Sanctions Pipeline",
+  "description": "Parses OFAC SDN XML and loads to BigQuery with enrichment.",
+  "parameters": [
+    {
+      "name": "input_file",
+      "label": "Input XML File",
+      "helpText": "GCS path to the input XML file.",
+      "isOptional": false,
+      "regexes": [
+        "^gs://.*"
+      ]
+    },
+    {
+      "name": "output_table",
+      "label": "Output BigQuery Table",
+      "helpText": "BigQuery table to write results to (PROJECT:DATASET.TABLE).",
+      "isOptional": false
+    }
+  ]
+}

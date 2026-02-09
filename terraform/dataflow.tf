@@ -56,3 +56,34 @@ resource "google_storage_bucket_iam_member" "dataflow_service_agent_bucket_acces
   role   = "roles/storage.admin"
   member = "serviceAccount:service-${data.google_project.project.number}@dataflow-service-producer-prod.iam.gserviceaccount.com"
 }
+
+# -------------------------------------------------------------------------
+# VPC Network for Dataflow
+# -------------------------------------------------------------------------
+
+resource "google_compute_network" "dataflow_network" {
+  name                    = "dataflow-network"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "dataflow_subnet" {
+  name                     = "dataflow-subnet"
+  ip_cidr_range            = "10.0.0.0/24"
+  region                   = var.region
+  network                  = google_compute_network.dataflow_network.id
+  private_ip_google_access = true
+}
+
+# Allow internal communication between Dataflow workers
+resource "google_compute_firewall" "dataflow_internal" {
+  name    = "dataflow-internal"
+  network = google_compute_network.dataflow_network.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["12345-12346"]
+  }
+
+  source_tags = ["dataflow"]
+  target_tags = ["dataflow"]
+}

@@ -1,0 +1,5 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [ 'build', '-t', 'asia-southeast1-docker.pkg.dev/agentspace-krozario/dataflow-templates/sanctions-pipeline:latest', '-f', 'load_and_search/Dockerfile', '.' ]
+images:
+  - 'asia-southeast1-docker.pkg.dev/agentspace-krozario/dataflow-templates/sanctions-pipeline:latest'
