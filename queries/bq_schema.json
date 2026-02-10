@@ -72,10 +72,9 @@
         "mode": "NULLABLE"
       },
       {
-        "name": "enriched_data",
-        "type": "JSON", 
-        "mode": "NULLABLE",
-        "description": "JSON object containing the full response from Google Maps Address Validation API"
+        "name": "country_iso2",
+        "type": "STRING",
+        "mode": "NULLABLE"
       }
     ]
   },
